@@ -7,18 +7,6 @@ import torch
 import numpy as np
 
 def analyze_sentence_flows(tokenizer, model, prompt_text, generated_sentences, answer_chunk=None):
-    """Analisa como cada episódio lógico influencia causalmente os episódios
-    posteriores e a resposta final, via supressão de atenção.
-
-    Se `answer_chunk` for fornecido (bloco "Final answer: <número>" separado
-    explicitamente), ele é anexado como o último chunk — assim a "relevância 
-    para a resposta final" é medida sobre o texto da resposta em si.
-
-    Calculamos:
-    - KL divergence: efeito na distribuição de próximo-token
-    - Entropy delta: mudança na incerteza sobre a resposta quando um episódio
-      é suprimido
-    """
     all_chunks = [prompt_text] + generated_sentences
     if answer_chunk is not None:
         all_chunks = all_chunks + [answer_chunk]
@@ -68,11 +56,6 @@ def analyze_sentence_flows(tokenizer, model, prompt_text, generated_sentences, a
     alpha = 0.5
     relevance_score = alpha * sentence_relevance + (1 - alpha) * downstream_importance
     
-    print(f"The model's final answer is: {all_chunks[-1].strip()}\n")
-    print(f"CoT gerado pelo modelo, dividido em {n_reasoning} episódios lógicos"
-          f"{' + bloco de resposta final separado' if answer_chunk is not None else ''}.\n")
-    print("Relevância de cada episódio para a resposta final e impacto em episódios posteriores:\n")
-    print(f"{'Idx':<5}{'Episódio Lógico':<60}{'AnswerRel':>12}{'Downstream':>12}{'Score':>10}{'dH(resp)':>12}")
 
     for i in range(1, n - 1):
         text = all_chunks[i].strip().replace("\n", " ")
@@ -81,11 +64,10 @@ def analyze_sentence_flows(tokenizer, model, prompt_text, generated_sentences, a
             f"{downstream_importance[i]:>12.6f}{relevance_score[i]:>10.6f}{entropy_delta[i]:>12.6f}"
         )
 
-    print("\nFluxo direcionado de influência entre episódios lógicos:\n")
     for i in range(1, n - 1):
         for j in range(i + 1, n):
             if flow_matrix[i, j] > 0.0:
-                label_j = "resposta final" if j == final_answer_idx else f"ep[{j - 1}]"
+                label_j = "Answer" if j == final_answer_idx else f"ep[{j - 1}]"
                 print(f"  ep[{i - 1}] -> {label_j}: {flow_matrix[i, j]:.6f}")
 
     return {
@@ -104,8 +86,6 @@ def analyze_sentence_flows(tokenizer, model, prompt_text, generated_sentences, a
     }
 
 def rank_sentence_relevance(analysis, top_k=None):
-    """Ordena os episódios lógicos pelo relevance_score, identificando
-    os 'anchors' — episódios cuja supressão mais afeta o restante."""
     n_reasoning = analysis["n_reasoning"]
     scores = analysis["relevance_score"][1:1 + n_reasoning]
     chunks = analysis["all_chunks"][1:1 + n_reasoning]
@@ -114,7 +94,6 @@ def rank_sentence_relevance(analysis, top_k=None):
     if top_k is not None:
         order = order[:top_k]
 
-    print("\nRanking de episódios por relevância combinada (logic anchors):\n")
     for rank, idx in enumerate(order, start=1):
         text = chunks[idx].strip().replace("\n", " ")
         print(f"  #{rank:<3} ep[{idx}] score={scores[idx]:.6f}  {text[:80]}")
